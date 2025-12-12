@@ -1,7 +1,6 @@
 #!/bin/bash
 
 # Mihomo-ECH 跨平台编译脚本
-# 支持: Linux AMD64, Linux ARM64, Windows AMD64
 
 set -e
 
@@ -16,6 +15,7 @@ BLUE='\033[0;34m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
+appName="ech-mihomo"
 # 版本信息
 VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
@@ -32,56 +32,156 @@ OUTPUT_DIR="build"
 rm -rf $OUTPUT_DIR
 mkdir -p $OUTPUT_DIR
 
-# 编译函数
-build() {
-    local GOOS=$1
-    local GOARCH=$2
-    local OUTPUT=$3
+
+# 编译单个平台
+build_single() {
+    local platform=$1
+    local goos=$(echo "$platform" | cut -d'/' -f1)
+    local goarch_full=$(echo "$platform" | cut -d'/' -f2)
     
-    echo -e "${BLUE}[编译] $GOOS/$GOARCH${NC}"
+    # 解析架构和变体
+    local goarch="$goarch_full"
+    local goarm=""
+    local gomips=""
+    local arch_suffix="$goarch_full"
     
-    # 设置编译参数
-    export CGO_ENABLED=0
-    export GOOS=$GOOS
-    export GOARCH=$GOARCH
-    
-    # 编译
-    go build -trimpath \
-        -ldflags "-s -w -X 'github.com/metacubex/mihomo/constant.Version=$VERSION' -X 'github.com/metacubex/mihomo/constant.BuildTime=$BUILD_TIME'" \
-        -o "$OUTPUT_DIR/$OUTPUT" \
-        .
-    
-    if [ $? -eq 0 ]; then
-        local SIZE=$(du -h "$OUTPUT_DIR/$OUTPUT" | cut -f1)
-        echo -e "${GREEN}[成功] $OUTPUT ($SIZE)${NC}"
-    else
-        echo -e "${RED}[失败] $OUTPUT${NC}"
-        exit 1
+    # 处理ARM变体
+    if [[ "$goarch_full" =~ ^armv([5-8])$ ]]; then
+        goarch="arm"
+        goarm="${BASH_REMATCH[1]}"
+        arch_suffix="armv${goarm}"
+    # 处理MIPS变体
+    elif [[ "$goarch_full" =~ ^mips(le)?-(hard|soft)$ ]]; then
+        if [[ "$goarch_full" == *"le"* ]]; then
+            goarch="mipsle"
+        else
+            goarch="mips"
+        fi
+        # 转换MIPS变体名称为Go编译器认可的格式
+        if [[ "${BASH_REMATCH[2]}" == "hard" ]]; then
+            gomips="hardfloat"
+        else
+            gomips="softfloat"
+        fi
+        arch_suffix="$goarch_full"
     fi
-    echo ""
+    
+    echo -e "正在编译 ${platform}..."
+    
+    # 设置输出文件名
+    local output_name="${appName}-${goos}-${arch_suffix}"
+    if [[ "$goos" == "windows" ]]; then
+        output_name="${appName}-${goos}-${arch_suffix}.exe"
+    fi
+    
+    mkdir -p "$OUTPUT_DIR"
+    
+    # 准备编译命令
+    local env_vars="GOOS=$goos GOARCH=$goarch"
+    if [[ -n "$goarm" ]]; then
+        env_vars="$env_vars GOARM=$goarm"
+    fi
+    if [[ -n "$gomips" ]]; then
+        env_vars="$env_vars GOMIPS=$gomips"
+    fi
+    
+
+    local build_cmd="$env_vars go build -trimpath -ldflags=\"-s -w -X 'github.com/metacubex/mihomo/constant.Version=$VERSION' -X 'github.com/metacubex/mihomo/constant.BuildTime=$BUILD_TIME'\" -o '${OUTPUT_DIR}/${output_name}' ."
+
+    # 执行编译
+    if eval "$build_cmd" 2>/dev/null; then
+        local file_size=$(du -h "${output_dir}/${output_name}" | cut -f1)
+        echo -e "✓ ${platform} 编译成功 (${file_size})"
+        echo -e "  输出文件: ${output_dir}/${output_name}"
+    else
+        echo -e "✗ ${platform} 编译失败"
+    fi
 }
 
-# 开始编译
-echo "========================================="
-echo "  开始编译"
-echo "========================================="
-echo ""
+MakeRelease() {
+  cd $OUTPUT_DIR
+  if [ -d compress ]; then
+    rm -rv compress
+  fi
+  mkdir compress
 
-# Linux AMD64
-build linux amd64 mihomo-linux-amd64
+  
+  for i in $(find . -type f -name "$appName-linux-*"); do
+    tar -czvf compress/"$i".tar.gz "$i"
+  done
+  for i in $(find . -type f -name "$appName-android-*"); do
+    tar -czvf compress/"$i".tar.gz "$i"
+  done
+  for i in $(find . -type f -name "$appName-darwin-*"); do
+    tar -czvf compress/"$i".tar.gz "$i"
+  done
+  for i in $(find . -type f -name "$appName-freebsd-*"); do
+    tar -czvf compress/"$i".tar.gz "$i"
+  done
+  for i in $(find . -type f -name "$appName-dragonfly-*"); do
+    tar -czvf compress/"$i".tar.gz "$i"
+  done
+  for i in $(find . -type f -name "$appName-netbsd-*"); do
+    tar -czvf compress/"$i".tar.gz "$i"
+  done
+  for i in $(find . -type f -name "$appName-openbsd-*"); do
+    tar -czvf compress/"$i".tar.gz "$i"
+  done
+  for i in $(find . -type f -name "$appName-plan9-*"); do
+    tar -czvf compress/"$i".tar.gz "$i"
+  done
+  for i in $(find . -type f -name "$appName-solaris-*"); do
+    tar -czvf compress/"$i".tar.gz "$i"
+  done
+  for i in $(find . -type f \( -name "$appName-windows-*" -o -name "$appName-windows7-*" \)); do
+    zip compress/$(echo $i | sed 's/\.[^.]*$//').zip "$i"
+  done
+  
+  cd compress
+  sha256sum * > SHA256SUMS.txt
+  echo "ech-tunnel 构建完成！共 $(ls -1 | grep -E '\.(tar\.gz|zip)$' | wc -l) 个文件"
+  
+  cd ../..
+}
 
-# Linux ARM64
-build linux arm64 mihomo-linux-arm64
+BuildRelease() {
+    rm -rf $OUTPUT_DIR
+    mkdir -p $OUTPUT_DIR
 
-# Windows AMD64
-build windows amd64 mihomo-windows-amd64.exe
+    # 开始编译
+    echo "========================================="
+    echo "  开始编译"
+    echo "========================================="
+    echo ""
 
-# 编译完成
-echo "========================================="
-echo "  编译完成!"
-echo "========================================="
-echo ""
-echo "输出文件:"
-ls -lh $OUTPUT_DIR/
-echo ""
-echo -e "${GREEN}所有文件已保存到 $OUTPUT_DIR/ 目录${NC}"
+    # Linux AMD64
+    build_single "linux/amd64"
+
+    # Linux ARM64
+    build_single "linux/arm64"
+
+    # Windows AMD64
+    build_single "windows/amd64"
+    
+    build_single "darwin/arm64" 
+
+    # 编译完成
+    echo "========================================="
+    echo "  编译完成!"
+    echo "========================================="
+    echo ""
+    echo "输出文件:"
+    ls -lh $OUTPUT_DIR/
+    echo ""
+    echo -e "${GREEN}所有文件已保存到 $OUTPUT_DIR/ 目录${NC}"
+}
+
+case "$1" in
+  release)
+    BuildRelease
+    MakeRelease
+    ;;
+  *)
+    echo "用法: $0 release"
+    ;;
+esac
