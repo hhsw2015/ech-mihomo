@@ -20,7 +20,8 @@ func (c *WSConn) Read(b []byte) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		if msgType != websocket.BinaryMessage {
+		// 允许二进制和文本消息, 增加兼容性
+		if msgType != websocket.BinaryMessage && msgType != websocket.TextMessage {
 			return 0, fmt.Errorf("unexpected message type: %d", msgType)
 		}
 		c.reader = r
