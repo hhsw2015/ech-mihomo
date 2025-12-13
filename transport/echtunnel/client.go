@@ -81,6 +81,12 @@ func (c *Client) DialContext(ctx context.Context, address string) (net.Conn, err
 	// 显式设置 Host Header, 这对 CDN (Cloudflare) 非常重要
 	headers := http.Header{}
 	headers.Set("Host", c.config.Server)
+	headers.Set("User-Agent", "Mihomo/1.0 ECHTunnel/0.1")
+
+	// 许多实现(如 v2ray-core, xray) 使用 Sec-WebSocket-Protocol 传递 Token/UUID
+	if c.config.Token != "" {
+		headers.Set("Sec-WebSocket-Protocol", c.config.Token)
+	}
 
 	conn, resp, err := c.dialer.DialContext(ctx, u.String(), headers)
 	if err != nil {
