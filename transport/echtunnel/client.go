@@ -82,8 +82,11 @@ func (c *Client) DialContext(ctx context.Context, address string) (net.Conn, err
 	headers := http.Header{}
 	headers.Set("Host", c.config.Server)
 
-	conn, _, err := c.dialer.DialContext(ctx, u.String(), headers)
+	conn, resp, err := c.dialer.DialContext(ctx, u.String(), headers)
 	if err != nil {
+		if resp != nil {
+			return nil, fmt.Errorf("websocket dial failed:Status=%s, err=%w", resp.Status, err)
+		}
 		return nil, fmt.Errorf("websocket dial failed: %w", err)
 	}
 
