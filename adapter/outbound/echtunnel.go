@@ -2,7 +2,6 @@ package outbound
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"strconv"
 
@@ -53,7 +52,12 @@ func (e *ECHTunnel) DialContext(ctx context.Context, metadata *C.Metadata) (_ C.
 
 // ListenPacketContext implements C.ProxyAdapter
 func (e *ECHTunnel) ListenPacketContext(ctx context.Context, metadata *C.Metadata) (_ C.PacketConn, err error) {
-	return e.DialContext(ctx, metadata)
+	c, err := e.client.DialContext(ctx, metadata.String())
+	if err != nil {
+		return nil, err
+	}
+	pc := echtunnel.NewPacketConn(c)
+	return newPacketConn(pc, e), nil
 }
 
 // SupportUOT implements C.ProxyAdapter
